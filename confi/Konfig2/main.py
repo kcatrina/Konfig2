@@ -3,6 +3,7 @@ import json
 import sys
 import os
 
+
 def get_package_dependencies(package_name, max_depth, current_depth=0):
     """Получение зависимостей пакета с учетом максимальной глубины."""
     if current_depth >= max_depth:
@@ -30,28 +31,35 @@ def get_package_dependencies(package_name, max_depth, current_depth=0):
         return []
 
 
-def generate_graphviz(package_name, dependencies):
-    """Генерация кода графа для программы визуализатора Graphviz."""
-    dot_output = f'digraph "{package_name}" {{\n'
-    dot_output += f'    "{package_name}" [shape=box];\n'
-
+def generate_mermaid(package_name, dependencies):
+    """Генерация описания графа зависимостей в формате Mermaid."""
+    mermaid_output = "graph TD\n"
     for dep in dependencies:
-        dot_output += f'    "{package_name}" -> "{dep}";\n'
-
-    dot_output += "}\n"
-    return dot_output
+        mermaid_output += f'    {package_name} --> {dep}\n'
+    return mermaid_output
 
 
-def save_graph_to_png(dot_file, graphviz_path, output_path):
-    """Сохранение графа в формате PNG."""
+def save_mermaid_to_file(mermaid_code, mermaid_file_path):
+    """Сохранение Mermaid-кода в файл."""
+    try:
+        with open(mermaid_file_path, 'w') as file:
+            file.write(mermaid_code)
+        print(f"Mermaid граф успешно сохранен в {mermaid_file_path}")
+    except IOError as e:
+        print(f"Ошибка при сохранении файла Mermaid: {e}")
+
+
+def convert_mermaid_to_png(mermaid_file_path, output_png_path, mermaid_cli_path):
+    """Конвертация графа Mermaid в PNG с использованием Mermaid CLI."""
     try:
         subprocess.run(
-            [graphviz_path, '-Tpng', dot_file, '-o', output_path],
+            [mermaid_cli_path, "-i", mermaid_file_path, "-o", output_png_path, "--scale", "3"],
             check=True
         )
-        print(f"Граф успешно сохранен в {output_path}")
+        print(f"Граф успешно преобразован в PNG: {output_png_path}")
     except subprocess.CalledProcessError as e:
-        print(f"Ошибка при создании изображения: {e}")
+        print(f"Ошибка при конвертации Mermaid в PNG: {e}")
+        sys.exit(1)
 
 
 def load_config(config_path):
@@ -76,34 +84,35 @@ def main():
     config_path = sys.argv[1]
     config = load_config(config_path)
 
-    graphviz_path = config.get("graphviz_path")
     package_name = config.get("package_name")
-    output_path = config.get("output_path")
+    output_png_path = config.get("output_png_path")
     max_depth = config.get("max_depth", 1)
+    mermaid_cli_path = config.get("mermaid_cli_path")
 
-    if not graphviz_path or not package_name or not output_path:
-        print("Некорректная конфигурация: Проверьте параметры graphviz_path, package_name и output_path.")
+    if not package_name or not output_png_path or not mermaid_cli_path:
+        print("Некорректная конфигурация: Проверьте параметры package_name, output_png_path и mermaid_cli_path.")
         sys.exit(1)
 
-    print(f"Путь к Graphviz: {graphviz_path}")
     print(f"Имя пакета: {package_name}")
-    print(f"Путь для сохранения изображения: {output_path}")
+    print(f"Путь для сохранения PNG: {output_png_path}")
+    print(f"Путь к Mermaid CLI: {mermaid_cli_path}")
 
     print("Получение зависимостей пакета...")
     dependencies = get_package_dependencies(package_name, max_depth)
     print(f"Зависимости: {dependencies}")
 
     if dependencies:
-        dot_graph = generate_graphviz(package_name, dependencies)
-        dot_filename = f"{package_name}_dependencies.dot"
+        # Генерация и сохранение Mermaid-кода
+        mermaid_graph = generate_mermaid(package_name, dependencies)
+        mermaid_file_path = f"{package_name}_dependencies.mermaid"
+        save_mermaid_to_file(mermaid_graph, mermaid_file_path)
 
-        with open(dot_filename, 'w') as f:
-            f.write(dot_graph)
-
+        # Конвертация в PNG
         print("Создание PNG изображения...")
-        save_graph_to_png(dot_filename, graphviz_path, output_path)
+        convert_mermaid_to_png(mermaid_file_path, output_png_path, mermaid_cli_path)
 
-        os.remove(dot_filename)
+        # Удаление промежуточного файла Mermaid
+        os.remove(mermaid_file_path)
         print("Визуализация завершена успешно.")
     else:
         print(f"Не удалось получить зависимости для пакета {package_name}.")

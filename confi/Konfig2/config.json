@@ -1,6 +1,6 @@
 {
-    "graphviz_path": "/mnt/c/Program Files/Graphviz/bin/dot.exe",
     "package_name": "curl",
-    "output_path": "dependencies_graph.png",
-    "max_depth": 2
+    "output_png_path": "dependencies.png",
+    "max_depth": 2,
+    "mermaid_cli_path": "/usr/local/bin/mmdc"
 }

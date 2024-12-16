@@ -4,75 +4,78 @@ import subprocess
 import json
 import os
 
-from main import get_package_dependencies, generate_graphviz, save_graph_to_png, load_config
+from main import (get_package_dependencies, generate_mermaid,
+                     save_mermaid_to_file, convert_mermaid_to_png, load_config)
 
-class TestDependencyGraph(unittest.TestCase):
-    @patch('subprocess.run')
-    def test_get_package_dependencies(self, mock_subprocess_run):
-        """Тестирование функции получения зависимостей."""
-        mock_subprocess_run.return_value = MagicMock(
-            stdout="Depends: libexample1\nDepends: libexample2\n",
-            returncode=0
-        )
+class TestProgramFunctions(unittest.TestCase):
 
-        dependencies = get_package_dependencies("test-package", max_depth=1)
+    # Тест get_package_dependencies
+    @patch("subprocess.run")
+    def test_get_package_dependencies(self, mock_run):
+        # Настройка мока для subprocess.run
+        mock_run.return_value.stdout = "Depends: libexample1\nDepends: libexample2\n"
+
+        dependencies = get_package_dependencies("test_package", max_depth=1)
         self.assertEqual(set(dependencies), {"libexample1", "libexample2"})
 
-        mock_subprocess_run.assert_called_with(
-            ['apt-cache', 'depends', 'test-package'],
-            capture_output=True, text=True, check=True
-        )
+        # Проверка вызова команды
+        mock_run.assert_called_with(['apt-cache', 'depends', "test_package"], capture_output=True, text=True, check=True)
 
-    def test_generate_graphviz(self):
-        """Тестирование генерации графа в формате Graphviz."""
+    @patch("subprocess.run", side_effect=subprocess.CalledProcessError(1, 'apt-cache'))
+    def test_get_package_dependencies_error(self, mock_run):
+        dependencies = get_package_dependencies("bad_package", max_depth=1)
+        self.assertEqual(dependencies, [])  # Ожидается пустой список
+
+    # Тест generate_mermaid
+    def test_generate_mermaid(self):
+        package_name = "test_package"
         dependencies = ["libexample1", "libexample2"]
-        expected_output = (
-            'digraph "test-package" {\n'
-            '    "test-package" [shape=box];\n'
-            '    "test-package" -> "libexample1";\n'
-            '    "test-package" -> "libexample2";\n'
-            '}\n'
-        )
-        result = generate_graphviz("test-package", dependencies)
+        expected_output = "graph TD\n    test_package --> libexample1\n    test_package --> libexample2\n"
+        result = generate_mermaid(package_name, dependencies)
         self.assertEqual(result, expected_output)
 
-    @patch('subprocess.run')
-    def test_save_graph_to_png(self, mock_subprocess_run):
-        """Тестирование сохранения графа в PNG (мокаем subprocess)."""
-        mock_subprocess_run.return_value = MagicMock(returncode=0)
+    # Тест save_mermaid_to_file
+    @patch("builtins.open", new_callable=mock_open)
+    def test_save_mermaid_to_file(self, mock_file):
+        mermaid_code = "graph TD\n    test_package --> libexample1\n"
+        file_path = "output.mermaid"
+        save_mermaid_to_file(mermaid_code, file_path)
+        mock_file.assert_called_with(file_path, 'w')
+        mock_file().write.assert_called_once_with(mermaid_code)
 
-        dot_file = "test.dot"
-        graphviz_path = "/usr/bin/dot"
-        output_path = "output.png"
-
-        save_graph_to_png(dot_file, graphviz_path, output_path)
-
-        mock_subprocess_run.assert_called_with(
-            [graphviz_path, '-Tpng', dot_file, '-o', output_path],
+    # Тест convert_mermaid_to_png
+    @patch("subprocess.run")
+    def test_convert_mermaid_to_png(self, mock_run):
+        mermaid_file = "input.mermaid"
+        output_png = "output.png"
+        cli_path = "/usr/bin/mmdc"
+        convert_mermaid_to_png(mermaid_file, output_png, cli_path)
+        mock_run.assert_called_with(
+            [cli_path, "-i", mermaid_file, "-o", output_png, "--scale", "3"],
             check=True
         )
 
-    @patch("builtins.open", new_callable=mock_open, read_data='{"key": "value"}')
-    def test_load_config_valid(self, mock_file):
-        """Тестирование загрузки корректного конфигурационного файла."""
+    @patch("subprocess.run", side_effect=subprocess.CalledProcessError(1, 'mmdc'))
+    def test_convert_mermaid_to_png_error(self, mock_run):
+        with self.assertRaises(SystemExit):  # Проверка на sys.exit(1)
+            convert_mermaid_to_png("input.mermaid", "output.png", "/usr/bin/mmdc")
+
+    # Тест load_config
+    @patch("builtins.open", new_callable=mock_open, read_data='{"package_name": "test", "output_png_path": "output.png", "mermaid_cli_path": "/usr/bin/mmdc"}')
+    def test_load_config(self, mock_file):
         config = load_config("config.json")
-        self.assertEqual(config, {"key": "value"})
-        mock_file.assert_called_with("config.json", "r")
+        self.assertEqual(config["package_name"], "test")
+        self.assertEqual(config["output_png_path"], "output.png")
+        self.assertEqual(config["mermaid_cli_path"], "/usr/bin/mmdc")
 
-    @patch("builtins.open", side_effect=FileNotFoundError)
-    def test_load_config_file_not_found(self, mock_file):
-        """Тестирование обработки ошибки при отсутствии файла конфигурации."""
-        with self.assertRaises(SystemExit) as cm:
-            load_config("missing.json")
-        self.assertEqual(cm.exception.code, 1)
+    def test_load_config_file_not_found(self):
+        with self.assertRaises(SystemExit):
+            load_config("non_existent.json")
 
-    @patch("builtins.open", new_callable=mock_open, read_data='invalid json')
-    def test_load_config_invalid_json(self, mock_file):
-        """Тестирование обработки ошибки при некорректном JSON формате."""
-        with self.assertRaises(SystemExit) as cm:
-            load_config("invalid.json")
-        self.assertEqual(cm.exception.code, 1)
-
+    @patch("builtins.open", new_callable=mock_open, read_data='invalid_json')
+    def test_load_config_json_decode_error(self, mock_file):
+        with self.assertRaises(SystemExit):
+            load_config("bad_config.json")
 
 if __name__ == "__main__":
     unittest.main()
