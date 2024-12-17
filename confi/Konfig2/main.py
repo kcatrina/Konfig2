@@ -4,32 +4,41 @@ import sys
 import os
 
 
-def get_package_dependencies(package_name, max_depth, current_depth=0):
-    """Получение зависимостей пакета с учетом максимальной глубины."""
+def get_package_dependencies(package_name, max_depth, current_depth=0, visited=None):
+    """Получение зависимостей пакета с учетом максимальной глубины без сторонних вызовов."""
     if current_depth >= max_depth:
         return []
+    
+    if visited is None:
+        visited = set()
+        
+    if package_name in visited:
+        return []
+    visited.add(package_name)
 
+    dependencies = []
+    package_file_path = f"/var/lib/apt/lists/{package_name}_dependencies.txt"
+    
+    # Попытка найти и прочитать информацию о пакете
     try:
-        result = subprocess.run(
-            ['apt-cache', 'depends', package_name],
-            capture_output=True, text=True, check=True
-        )
-        output = result.stdout
-        dependencies = []
-        for line in output.splitlines():
-            line = line.strip()
-            if line.startswith("Depends:") or line.startswith("Recommends:"):
-                dep = line.split()[1]
-                dependencies.append(dep)
+        with open(package_file_path, "r") as file:
+            for line in file:
+                line = line.strip()
+                if line.startswith("Depends:") or line.startswith("Recommends:"):
+                    dep = line.split()[1]
+                    dependencies.append(dep)
 
+        # Рекурсивный поиск зависимостей на следующем уровне
         all_dependencies = dependencies[:]
         for dep in dependencies:
-            all_dependencies += get_package_dependencies(dep, max_depth, current_depth + 1)
+            all_dependencies += get_package_dependencies(dep, max_depth, current_depth + 1, visited)
         return list(set(all_dependencies))
-    except subprocess.CalledProcessError as e:
-        print(f"Ошибка при получении зависимостей для {package_name}: {e}")
+    except FileNotFoundError:
+        print(f"Файл для пакета {package_name} не найден.")
         return []
-
+    except Exception as e:
+        print(f"Ошибка при обработке пакета {package_name}: {e}")
+        return []
 
 def generate_mermaid(package_name, dependencies):
     """Генерация описания графа зависимостей в формате Mermaid."""
